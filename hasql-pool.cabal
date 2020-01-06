@@ -54,7 +54,10 @@ library
     -- data:
     time >= 1.5 && < 2,
     -- general:
-    base-prelude >= 1 && < 2
+    base-prelude >= 1 && < 2,
+    mtl,
+    either,
+    base
 
 
 test-suite test
@@ -72,4 +75,5 @@ test-suite test
     base-prelude,
     hasql,
     hasql-pool,
-    hspec >= 2.6 && < 3
+    hspec >= 2.6 && < 3,
+    base

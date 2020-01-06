@@ -8,7 +8,6 @@ module Hasql.Pool
   defaultSettings,
   acquire,
   release,
-  UsageError(..),
   use,
 )
 where
@@ -19,13 +18,16 @@ import qualified Hasql.Session
 import Hasql.Session (QueryError(..), CommandError(ClientError))
 import qualified Data.Pool as ResourcePool
 import qualified Hasql.Pool.ResourcePool as ResourcePool
+import Control.Monad.Error.Class (liftEither)
+import Data.Either.Combinators (mapLeft)
+import Control.Exception (throwIO)
 
 
 -- |
 -- A pool of connections to DB.
 data Pool
   = Pool
-  { pool :: ResourcePool.Pool (Either Hasql.Connection.ConnectionError Hasql.Connection.Connection)
+  { pool :: ResourcePool.Pool Hasql.Connection.Connection
   , settings :: Settings
   } deriving (Show)
 
@@ -69,9 +71,9 @@ acquire stgs@(Settings { poolSize, timeout, connectionSettings }) =
     <*> pure stgs
   where
     acquire =
-      Hasql.Connection.acquire connectionSettings
+      join (either throwIO pure <$> Hasql.Connection.acquire connectionSettings)
     release =
-      either (const (pure ())) Hasql.Connection.release
+      Hasql.Connection.release
     stripes =
       1
 
@@ -82,18 +84,9 @@ release (Pool { pool }) =
   ResourcePool.destroyAllResources pool
 
 -- |
--- A union over the connection establishment error and the session error.
-data UsageError =
-  ConnectionError Hasql.Connection.ConnectionError |
-  SessionError Hasql.Session.QueryError
-  deriving (Show, Eq)
-
--- |
 -- Use a connection from the pool to run a session and
 -- return the connection to the pool, when finished.
-use :: Pool -> Hasql.Session.Session a -> IO (Either UsageError a)
+use :: Pool -> Hasql.Session.Session a -> IO (Either Hasql.Session.QueryError a)
 use (Pool { pool, settings }) session =
-  fmap (either (Left . ConnectionError) (either (Left . SessionError) Right)) $
   ResourcePool.withResourceOnEither pool (connectionHealthCheck settings) $
-  traverse $
   Hasql.Session.run session
