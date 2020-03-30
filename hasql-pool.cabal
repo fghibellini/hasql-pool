@@ -57,6 +57,8 @@ library
     base-prelude >= 1 && < 2,
     mtl,
     either,
+    uuid,
+    random,
     base
 
 

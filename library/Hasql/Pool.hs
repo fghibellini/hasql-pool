@@ -21,15 +21,24 @@ import qualified Hasql.Pool.ResourcePool as ResourcePool
 import Control.Monad.Error.Class (liftEither)
 import Data.Either.Combinators (mapLeft)
 import Control.Exception (throwIO)
+import Data.UUID (UUID)
+import System.Random (randomIO)
 
 
 -- |
 -- A pool of connections to DB.
 data Pool
   = Pool
-  { pool :: ResourcePool.Pool Hasql.Connection.Connection
+  { pool :: ResourcePool.Pool ConnectionWithId
   , settings :: Settings
   } deriving (Show)
+
+-- |
+-- A connection with an id for logging purposes
+data ConnectionWithId = ConnectionWithId
+  { id :: ! UUID
+  , connection :: ! Hasql.Connection.Connection
+  }
 
 -- | Settings of the connection pool. Consist of:
 data Settings
@@ -71,9 +80,14 @@ acquire stgs@(Settings { poolSize, timeout, connectionSettings }) =
     <*> pure stgs
   where
     acquire =
-      join (either throwIO pure <$> Hasql.Connection.acquire connectionSettings)
+      join (either throwIO pure <$> do
+        res <- Hasql.Connection.acquire connectionSettings
+        case res of
+          Left e -> pure $ Left e
+          Right c -> Right <$> (ConnectionWithId <$> randomIO <*> pure c)
+        )
     release =
-      Hasql.Connection.release
+      Hasql.Connection.release . connection
     stripes =
       1
 
@@ -88,5 +102,4 @@ release (Pool { pool }) =
 -- return the connection to the pool, when finished.
 use :: Pool -> Hasql.Session.Session a -> IO (Either Hasql.Session.QueryError a)
 use (Pool { pool, settings }) session =
-  ResourcePool.withResourceOnEither pool (connectionHealthCheck settings) $
-  Hasql.Session.run session
+  ResourcePool.withResourceOnEither pool (connectionHealthCheck settings) (Hasql.Session.run session . connection)
