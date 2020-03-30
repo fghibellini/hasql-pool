@@ -13,6 +13,7 @@ module Hasql.Pool
 where
 
 import Hasql.Pool.Prelude
+import Hasql.Pool.Types
 import qualified Hasql.Connection
 import qualified Hasql.Session
 import Hasql.Session (QueryError(..), CommandError(ClientError))
@@ -21,41 +22,8 @@ import qualified Hasql.Pool.ResourcePool as ResourcePool
 import Control.Monad.Error.Class (liftEither)
 import Data.Either.Combinators (mapLeft)
 import Control.Exception (throwIO)
-import Data.UUID (UUID)
 import System.Random (randomIO)
-
-
--- |
--- A pool of connections to DB.
-data Pool
-  = Pool
-  { pool :: ResourcePool.Pool ConnectionWithId
-  , settings :: Settings
-  } deriving (Show)
-
--- |
--- A connection with an id for logging purposes
-data ConnectionWithId = ConnectionWithId
-  { id :: ! UUID
-  , connection :: ! Hasql.Connection.Connection
-  }
-
--- | Settings of the connection pool. Consist of:
-data Settings
-  = Settings
-  { poolSize :: Int
-  -- | ^ size of the pool
-  , timeout :: NominalDiffTime
-  -- | ^ An amount of time for which an unused resource is kept open. The smallest acceptable value is 0.5 seconds.
-  , connectionSettings :: Hasql.Connection.Settings
-  -- | ^ Connection settings.
-  , connectionHealthCheck :: QueryError -> Bool
-  -- | ^ Function called on an error returned by a @Session@ to evaluate whether the connection is still healthy.
-  -- | When False is returned, the connection is evicted from the pool.
-  }
-
-instance Show Settings where
-  show (Settings { poolSize, timeout, connectionSettings }) = "Settings { poolSize = " <> show poolSize <> ", timeout = " <> show timeout <> ", connectionSettings = " <> show connectionSettings <> " }"
+import Data.UUID (toASCIIBytes)
 
 defaultConnectionHealthCheck :: QueryError -> Bool
 defaultConnectionHealthCheck (QueryError _ _ (ClientError (Just "no connection to the server"))) = False
@@ -68,13 +36,14 @@ defaultSettings
   , timeout = 60.0 :: NominalDiffTime
   , connectionSettings = ""
   , connectionHealthCheck = defaultConnectionHealthCheck
+  , loggingFn = \_ -> pure ()
   }
 
 -- |
 -- Given the pool-size, timeout and connection settings
 -- create a connection-pool.
 acquire :: Settings -> IO Pool
-acquire stgs@(Settings { poolSize, timeout, connectionSettings }) =
+acquire stgs@(Settings { poolSize, timeout, connectionSettings, loggingFn }) =
   Pool
     <$> ResourcePool.createPool acquire release stripes timeout poolSize
     <*> pure stgs
@@ -84,10 +53,14 @@ acquire stgs@(Settings { poolSize, timeout, connectionSettings }) =
         res <- Hasql.Connection.acquire connectionSettings
         case res of
           Left e -> pure $ Left e
-          Right c -> Right <$> (ConnectionWithId <$> randomIO <*> pure c)
+          Right c -> do
+            rid <- randomIO
+            loggingFn $ "Allocated connection " <> toASCIIBytes rid
+            pure $ Right $ ConnectionWithId rid c
         )
-    release =
-      Hasql.Connection.release . connection
+    release x = do
+      Hasql.Connection.release $ connection x
+      loggingFn $ "Released connection " <> toASCIIBytes (connectionId x)
     stripes =
       1
 
@@ -101,5 +74,5 @@ release (Pool { pool }) =
 -- Use a connection from the pool to run a session and
 -- return the connection to the pool, when finished.
 use :: Pool -> Hasql.Session.Session a -> IO (Either Hasql.Session.QueryError a)
-use (Pool { pool, settings }) session =
+use pool@(Pool { settings }) session =
   ResourcePool.withResourceOnEither pool (connectionHealthCheck settings) (Hasql.Session.run session . connection)
