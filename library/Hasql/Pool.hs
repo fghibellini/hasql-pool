@@ -24,6 +24,7 @@ import Data.Either.Combinators (mapLeft)
 import Control.Exception (throwIO)
 import System.Random (randomIO)
 import Data.UUID (toASCIIBytes)
+import Data.ByteString.Char8 (pack)
 
 defaultConnectionHealthCheck :: QueryError -> Bool
 defaultConnectionHealthCheck (QueryError _ _ (ClientError (Just "no connection to the server"))) = False
@@ -58,9 +59,10 @@ acquire stgs@(Settings { poolSize, timeout, connectionSettings, loggingFn }) =
             loggingFn $ "Allocated connection " <> toASCIIBytes rid
             pure $ Right $ ConnectionWithId rid c
         )
-    release x = do
+    release :: ResourcePool.DestroyReason -> ConnectionWithId -> IO ()
+    release reason x = do
       Hasql.Connection.release $ connection x
-      loggingFn $ "Released connection " <> toASCIIBytes (connectionId x)
+      loggingFn $ "Released connection " <> toASCIIBytes (connectionId x) <> " reason: " <> pack (show reason)
     stripes =
       1
 
