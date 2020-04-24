@@ -27,7 +27,7 @@ import Data.UUID (toASCIIBytes)
 import Data.ByteString.Char8 (pack)
 
 defaultConnectionHealthCheck :: QueryError -> Bool
-defaultConnectionHealthCheck (QueryError _ _ (ClientError (Just "no connection to the server"))) = False
+defaultConnectionHealthCheck (QueryError _ _ (ClientError (Just "no connection to the server\n"))) = False
 defaultConnectionHealthCheck _ = True
 
 defaultSettings :: Settings
