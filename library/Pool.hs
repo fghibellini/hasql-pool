@@ -23,7 +23,7 @@ import Data.Bifunctor (first)
 -- A pool of connections to DB.
 data Pool e a =
   Pool
-    Int
+    Int -- TODO this is not respected
     {-^ Max connections. -}
     Int
     {-^ Connection timeout in milliseconds. -}
