@@ -6,6 +6,7 @@ module Pool
   new,
   destroy,
   UsageError(..),
+  TakeError(..),
   withResource,
 )
 where
